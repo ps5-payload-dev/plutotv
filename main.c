@@ -55,6 +55,11 @@ int sceAppInstUtilAppUnInstall(const char*);
 INCASSET(param_json, "sce_sys/param.json");
 INCASSET(icon0_png, "sce_sys/icon0.png");
 INCASSET(pic1_png, "sce_sys/pic1.png");
+INCASSET(app_css, "webapp/app.css");
+INCASSET(app_js, "webapp/app.js");
+INCASSET(index_html, "webapp/index.html");
+INCASSET(input_js, "webapp/input.js");
+INCASSET(pluto_js, "webapp/pluto.js");
 
 static int
 remount_system_ex(void) {
@@ -170,6 +175,37 @@ main(int argc, char *argv[]) {
   }
   if(install_file("/user/app/"TITLE_ID"/sce_sys/param.json",
 		  param_json, param_json_size)) {
+    perror("install_file");
+    return -1;
+  }
+
+  if(install_file("/user/app/"TITLE_ID"/app.css",
+		  app_css, app_css_size)) {
+    perror("install_file");
+    return -1;
+  }
+  if(install_file("/user/app/"TITLE_ID"/app.js",
+		  app_js, app_js_size)) {
+    perror("install_file");
+    return -1;
+  }
+  if(install_file("/user/app/"TITLE_ID"/index.html",
+		  index_html, index_html_size)) {
+    perror("install_file");
+    return -1;
+  }
+  if(install_file("/user/app/"TITLE_ID"/input.js",
+		  input_js, input_js_size)) {
+    perror("install_file");
+    return -1;
+  }
+  if(install_file("/user/app/"TITLE_ID"/pluto.js",
+		  pluto_js, pluto_js_size)) {
+    perror("install_file");
+    return -1;
+  }
+  if(install_file("/user/app/"TITLE_ID"/logo.png",
+		  icon0_png, icon0_png_size)) {
     perror("install_file");
     return -1;
   }
