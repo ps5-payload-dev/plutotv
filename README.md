@@ -14,12 +14,10 @@ The majority of the UI has been produced by [claude.ai][claude].
 > [!NOTE]
 > Pluto TV is region-locked, and the region is decided by the address the
 > console connects from. The catalogue, the channel lineup and the language
-> all follow from it. *Status* shows which region came back.
+> all follow from it.
 
 The views are the ones pluto.tv puts in its own header — Home, Live TV, Movies
-and Shows — plus Search, which the site keeps behind an icon, and Status, which
-has no equivalent because a browser does not have to be told which region it
-resolved to.
+and Shows.
 
 ## Controls
 
@@ -113,8 +111,19 @@ Two requests then cover the whole catalogue:
   nothing of the kind being asked for drops out instead of drawing an empty
   shelf.
 
-  Pluto labels a title's type, but not always — some carry only a list of
-  season numbers. Having seasons is what makes something a show here.
+  Both halves of that filter are asked for by name. Having seasons — or being
+  labelled a series — is what makes something a show; being labelled a film is
+  what makes something a film. The catalogue holds more than the two: categories
+  like Sports and News are full of single items that are neither, and taking
+  "not a series" for a film swept every one of them into Movies. They are still
+  in the catalogue and still reachable from Home; they just no longer count as
+  films.
+
+  Asking for the label only works while the label is there to ask for, and not
+  every region's catalogue is filled in to the same standard. So the response is
+  checked once when it is fetched, and if nothing in it is labelled a film at
+  all, the older, looser test is used instead — a Movies view carrying a few
+  things that are not films beats an empty one.
 
 A series is fetched whole — `v3/vod/series/{id}/seasons` returns every episode
 of every season — which is why a season has no id of its own here and entries
@@ -144,9 +153,6 @@ order, so a reshuffle of the catalogue turns up on its own.
 
 What is left:
 
-- **`SEARCH_API`** is the least certain thing in `pluto.js`. It is parsed
-  defensively — three possible envelope shapes — but if search comes back empty
-  while browsing works, that endpoint is where to look.
 - **`APP_VERSION`** is what the website sends. Pluto has not historically been
   fussy about it, but it is the first thing to bump if boot starts refusing.
 - **`STITCHER_FALLBACK`** is only reached when a boot response names no

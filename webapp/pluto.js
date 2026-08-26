@@ -29,7 +29,6 @@ var Pluto = (function () {
     var BOOT_API = "https://boot.pluto.tv/v4/start";
     var API = "https://api.pluto.tv";
     var CHANNELS_API = "https://service-channels.clusters.pluto.tv";
-    var SEARCH_API = "https://service-media-search.clusters.pluto.tv/v1/search";
     var IMAGE_HOST = "https://images.pluto.tv";
 
     // Where the manifests come from. The boot response names the stitcher it
@@ -71,8 +70,6 @@ var Pluto = (function () {
     // How far ahead of now to ask for programme data. Two hours is enough for
     // "now, and what follows" without pulling down a day of schedule.
     var EPG_WINDOW_MIN = 120;
-
-    var SEARCH_LIMIT = 60;
 
     /* --------------------------------------------------------------- misc */
 
@@ -203,7 +200,6 @@ var Pluto = (function () {
     var session = null;      // the live one
     var sessionAt = 0;       // when it was minted
     var pending = null;      // a boot already in flight
-    var lastError = null;
 
     function bootParams() {
         return {
@@ -267,7 +263,6 @@ var Pluto = (function () {
                 expires: (claims.exp || 0) * 1000
             };
             sessionAt = Date.now();
-            lastError = null;
             return session;
         });
     }
@@ -290,10 +285,7 @@ var Pluto = (function () {
             return pending;
         }
 
-        pending = boot()["catch"](function (err) {
-            lastError = err;
-            throw err;
-        }).then(function (s) {
+        pending = boot().then(function (s) {
             pending = null;
             return s;
         }, function (err) {
@@ -518,6 +510,23 @@ var Pluto = (function () {
             !!(item.seasonsNumbers && item.seasonsNumbers.length > 0);
     }
 
+    /*
+     * A film, asked for by name rather than by elimination.
+     *
+     * The catalogue holds more than films and series. Categories like Sports
+     * and News are full of single items that are neither -- a game, a segment,
+     * a highlights reel -- and they carry no season numbers, so "not a series"
+     * takes every one of them for a film. Naming the type instead leaves them
+     * where they belong: in the catalogue, reachable from Home, and out of
+     * Movies.
+     */
+    var FILM_TYPES = {movie: true, film: true, feature: true};
+
+    function isMovie(item) {
+        return !isSeries(item) &&
+            FILM_TYPES[text(item.type).toLowerCase()] === true;
+    }
+
     function entryOfVod(item) {
         var id = text(item._id || item.id);
 
@@ -728,6 +737,32 @@ var Pluto = (function () {
     /* ---------------------------------------------------------- on demand */
 
     /*
+     * Whether this catalogue labels its films at all.
+     *
+     * isMovie() asks for the label rather than inferring it, which is only an
+     * improvement while the label is there to ask for. Not every region's
+     * catalogue is filled in to the same standard, and a Movies view that is
+     * empty because a field is missing is worse than one carrying a few things
+     * that are not films. So the whole response is looked at once, when it is
+     * fetched, and if nothing in it is labelled a film the old loose test is
+     * used instead.
+     */
+    var vodLoose = false;
+
+    function noneLabelled(list) {
+        var i, j, items;
+        for (i = 0; i < list.length; i++) {
+            items = list[i].items || [];
+            for (j = 0; j < items.length; j++) {
+                if (isMovie(items[j])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /*
      * The on-demand catalogue.
      *
      * Asking for the items inline makes this one request instead of one per
@@ -743,9 +778,11 @@ var Pluto = (function () {
             limit: 1000
         }).then(function (json) {
             var list = (json && json.categories) || [];
-            return list.filter(function (c) {
+            list = list.filter(function (c) {
                 return (c.items || []).length > 0;
             });
+            vodLoose = noneLabelled(list);
+            return list;
         });
     }
 
@@ -765,11 +802,16 @@ var Pluto = (function () {
      * Films and shows are mixed together inside each category, so Movies and
      * Shows are the same rows filtered two ways rather than two different
      * requests -- and a category with nothing of the kind being asked for
-     * drops out rather than drawing an empty shelf.
+     * drops out rather than drawing an empty shelf. Which is what keeps a
+     * category of sports out of Movies: once the clips in it are no longer
+     * counted as films, there is nothing left in it to draw a shelf for.
      */
     function vodItemsOfKind(items, kind) {
         return (items || []).filter(function (item) {
-            return isSeries(item) === (kind === "shows");
+            if (kind === "shows") {
+                return isSeries(item);
+            }
+            return vodLoose ? !isSeries(item) : isMovie(item);
         });
     }
 
@@ -869,40 +911,6 @@ var Pluto = (function () {
                 }
             }
             throw new Error("Unknown season");
-        });
-    }
-
-    /* ------------------------------------------------------------- search */
-
-    /*
-     * Search covers both halves of the service at once, so a result may be a
-     * channel, a film or a series. What comes back is shaped like a VOD item
-     * except for channels, which are recognised by their type.
-     */
-    function search(term) {
-        term = text(term);
-        if (!term) {
-            return Promise.resolve([]);
-        }
-
-        return cached("search:" + term.toLowerCase(), function () {
-            return api(SEARCH_API, "", {
-                q: term,
-                limit: SEARCH_LIMIT
-            }).then(function (json) {
-                var list = (json && (json.data || json.results ||
-                                     json.items)) || json || [];
-                if (!list.length) {
-                    return [];
-                }
-                return list.map(function (item) {
-                    var type = text(item.type);
-                    if (type === "channel" || type === "live") {
-                        return entryOfChannel(item);
-                    }
-                    return entryOfVod(item);
-                });
-            });
         });
     }
 
@@ -1075,18 +1083,7 @@ var Pluto = (function () {
         allChannels: allChannels,
         series: series,
         season: season,
-        search: search,
         resolve: resolve,
-        clearCache: clearCache,
-
-        // Status reads these; nothing else needs the session itself.
-        session: function () { return session; },
-        refresh: function () {
-            session = null;
-            return authorize();
-        },
-        lastError: function () {
-            return lastError ? lastError.message : "";
-        }
+        clearCache: clearCache
     };
 }());

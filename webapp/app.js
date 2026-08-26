@@ -39,19 +39,12 @@
     var CHUNK = 40;
     var GROW_MARGIN = 12;
 
-    /*
-     * The same views pluto.tv puts in its own header, in its order, plus the
-     * two this UI needs of its own: Search, which the site keeps behind an
-     * icon, and Status, which has no equivalent because a browser does not
-     * have to be told which region it resolved to.
-     */
+    // The views pluto.tv puts in its own header, in its order.
     var RAIL = [
         {id: "start",   name: "Home"},
         {id: "live",    name: "Live TV"},
         {id: "movies",  name: "Movies"},
-        {id: "shows",   name: "Shows"},
-        {id: "search",  name: "Search"},
-        {id: "status",  name: "Status"}
+        {id: "shows",   name: "Shows"}
     ];
 
     // Focus indices are counted within the listing only; the nav rail is
@@ -310,7 +303,7 @@
     }
 
     // Which rail entry a view belongs under. Read from the root frame, so
-    // drilling into a series from Search keeps Search lit rather than falling
+    // drilling into a series from Shows keeps Shows lit rather than falling
     // back to Home.
     function railIdOf(view) {
         if (view === "live" || view === "channels") {
@@ -321,12 +314,6 @@
         }
         if (view === "shows") {
             return "shows";
-        }
-        if (view === "search") {
-            return "search";
-        }
-        if (view === "status") {
-            return "status";
         }
         return "start";
     }
@@ -491,20 +478,6 @@
             return;
         }
 
-        if (frame.view === "status") {
-            crumb(["Status"]);
-            busy(false);
-            renderStatus(my);
-            return;
-        }
-
-        if (frame.view === "search") {
-            crumb(["Search"]);
-            busy(false);
-            renderSearch(my, frame.param);
-            return;
-        }
-
         if (frame.view === "category") {
             crumb([frame.title]);
             Pluto.categoryItems(frame.param).then(function (l) {
@@ -563,129 +536,6 @@
     }
 
     /*
-     * The status screen.
-     *
-     * There is no account to manage: Pluto is free and asks for nothing but a
-     * device id, which this generates once and keeps. What is worth showing
-     * instead is what the session came back as -- above all the region, since
-     * that is decided by the address the console connects from, and is the
-     * first thing to look at when the catalogue is not the expected one.
-     */
-    function renderStatus(my) {
-        elContent.innerHTML =
-            '<div class="account">' +
-            '<div class="status" id="sess-status"><b>Fetching session…</b></div>' +
-            "<p>Pluto TV is free and needs no sign-in. The region follows from " +
-            "the address the console connects from, and decides both the " +
-            "channel lineup and the catalogue.</p>" +
-            '<div class="action focusable" data-action="refresh">' +
-            "Renew the session</div>" +
-            '<div class="action focusable" data-action="reload">' +
-            "Clear the cache and reload</div>" +
-            '<div class="drm" id="sess-note"></div>' +
-            "</div>";
-
-        gridEl = null;
-        entries = [];
-        focusContent(frame_focus());
-
-        Pluto.refresh().then(function (info) {
-            if (my !== token) { return; }
-            var box = document.getElementById("sess-status");
-            var note = document.getElementById("sess-note");
-            if (!box) { return; }
-
-            box.innerHTML = '<b class="on">Ansluten' +
-                (info.region ? " – " + esc(info.region.toUpperCase()) : "") +
-                "</b><span>" +
-                (info.city ? esc(info.city) + ". " : "") +
-                (info.expires
-                 ? "Session valid until " +
-                 esc(new Date(info.expires).toLocaleTimeString())
-                 : "Could not read how long the session is valid.") +
-                "</span>";
-
-            if (note) {
-                note.textContent = "Streams come from " +
-                    info.stitcher.replace(/^https?:\/\//, "") + ".";
-            }
-        }, function (err) {
-            if (my !== token) { return; }
-            var box = document.getElementById("sess-status");
-            if (!box) { return; }
-            box.innerHTML = '<b class="off">No session</b><span>' +
-                esc((err && err.message) || "Unknown error") + "</span>";
-        });
-    }
-
-    /*
-     * Search.
-     *
-     * Typing on a pad is miserable, so the field is left to the system
-     * keyboard and Input steps aside for as long as it has focus. The term
-     * belongs to the frame rather than to the field, so opening a result and
-     * backing out of it shows the same results again rather than an empty box.
-     */
-    function renderSearch(my, term) {
-        elContent.innerHTML =
-            '<div class="account">' +
-            '<div class="status"><b>Search</b><span>' +
-            (term ? "Results for \u201d" + esc(term) + "\u201d."
-             : "Channels, movies and shows.") +
-            "</span></div>" +
-            '<textarea id="searchbox" rows="1" spellcheck="false" ' +
-            'autocapitalize="off" autocorrect="off" hidden></textarea>' +
-            '<div class="action focusable" data-action="search">' +
-            (term ? "Search again" : "Enter a search term") + "</div>" +
-            '<div id="results"></div></div>';
-
-        gridEl = null;
-        entries = [];
-        drawn = 0;
-
-        if (!term) {
-            focusContent(0);
-            return;
-        }
-
-        busy(true);
-        Pluto.search(term).then(function (list) {
-            if (my !== token) { return; }
-            busy(false);
-
-            var box = document.getElementById("results");
-            if (!box) { return; }
-
-            if (!list.length) {
-                box.innerHTML = '<div class="notice"><b>No results</b>' +
-                    "Try another word.</div>";
-                focusContent(0);
-                return;
-            }
-
-            /*
-             * Drawn here rather than through listing(), which replaces the
-             * whole view and would take the search action above the results
-             * with it. Every card is drawn at once: a search returns a screen
-             * or two, not the two hundred titles a letter of an index does.
-             */
-            entries = list;
-            drawn = list.length;
-            box.innerHTML = '<div class="grid">' +
-                list.map(function (e, i) {
-                    return cardHtml(e, i);
-                }).join("") + "</div>";
-            gridEl = box.querySelector(".grid");
-            focusContent(frame_focus());
-        }, function (err) {
-            if (my !== token) { return; }
-            busy(false);
-            toast((err && err.message) || "Search failed", true);
-            focusContent(0);
-        });
-    }
-
-    /*
      * The series and season number behind a season entry.
      *
      * Pluto serves every season of a series in one response and gives a season
@@ -700,44 +550,6 @@
             series: rest.substring(0, cut),
             number: rest.substring(cut + 1)
         };
-    }
-
-    function frame_focus() {
-        var top = stack[stack.length - 1];
-        return top ? top.focus : 0;
-    }
-
-    // Hand the field the keyboard, and take it back when the field is done.
-    // Reading the value on blur rather than on a key means the system keyboard
-    // can commit however it likes.
-    function editSearch() {
-        var box = document.getElementById("searchbox");
-        if (!box) {
-            return;
-        }
-        var top = stack[stack.length - 1];
-        box.hidden = false;
-        box.value = (top && top.param) || "";
-        Input.suspend();
-
-        var finish = function () {
-            box.removeEventListener("blur", finish);
-            Input.resume();
-            var value = box.value.trim();
-            box.hidden = true;
-
-            if (!value || !top) {
-                render(stack[stack.length - 1]);
-                return;
-            }
-
-            top.param = value;
-            top.focus = 0;
-            render(top);
-        };
-
-        box.addEventListener("blur", finish);
-        box.focus();
     }
 
     /*
@@ -825,22 +637,6 @@
         // loaded it -- so Cross is simply "into the listing", same as Right.
         if (el.getAttribute("data-rail")) {
             enterContent();
-            return;
-        }
-
-        var action = el.getAttribute("data-action");
-        if (action === "search") {
-            editSearch();
-            return;
-        }
-        if (action === "refresh") {
-            toast("Renewing the session…");
-            Pluto.clearCache();
-            render(stack[stack.length - 1]);
-            return;
-        }
-        if (action === "reload") {
-            reload();
             return;
         }
 
