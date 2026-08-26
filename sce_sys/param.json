@@ -1,0 +1,11 @@
+{
+    "applicationCategoryType": 66048,
+    "titleId": "BREW10005",
+    "localizedParameters": {
+	"defaultLanguage": "en-US",
+	"en-US": {
+	    "titleName": "Pluto TV"
+	}
+    },
+    "webAppUri": "https://ps5-payload-dev.github.io/plutotv"
+}

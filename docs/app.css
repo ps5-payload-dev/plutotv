@@ -1,0 +1,598 @@
+:root {
+    /*
+     * Pluto's own palette: a very dark blue-black rather than a true black,
+     * lifted a step at a time for surfaces, with one saturated yellow doing
+     * all the pointing. Nothing else competes with it -- the yellow is
+     * reserved for what has the cursor, which is what makes a focus ring
+     * readable from the other side of a room.
+     */
+    --bg:        #06060d;
+    --surface:   #12121f;
+    --surface-2: #1e1e30;
+    --line:      #2d2d45;
+
+    --text:      #ffffff;
+    --dim:       #a5a5bd;
+    --faint:     #6b6b87;
+
+    --accent:    #ffe000;
+    --live:      #f5333f;
+    --paid:      #e6b455;
+
+    /* TV overscan: never put anything in the outer 3% of the panel. */
+    --safe-x: 3.2vw;
+    --safe-y: 3.0vh;
+
+    --card-w: 18.25rem;
+    --gap: 1.4rem;
+    --radius: 6px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+    /* 1080p is the design target; scale with the panel so 4K stays legible. */
+    font-size: calc(11px + 0.42vw);
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 1.25rem;
+    line-height: 1.35;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+[hidden] { display: none !important; }
+
+/* shell */
+
+#browser {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#topbar {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: var(--safe-y) var(--safe-x) 0.9rem;
+    flex: 0 0 auto;
+}
+
+#logo {
+    width: 64px;
+    content:url("logo.png");
+}
+
+#crumb {
+    font-size: 1.7rem;
+    color: var(--dim);
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#crumb b { color: var(--text); font-weight: 600; }
+#crumb i { color: var(--faint); font-style: normal; margin: 0 0.5em; }
+
+#clock {
+    font-size: 2rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Two pixels of colour while something is in flight; no spinner clutter. */
+#loadbar {
+    height: 2px;
+    background: transparent;
+    flex: 0 0 auto;
+    overflow: hidden;
+}
+#loadbar i {
+    display: block;
+    height: 100%;
+    width: 30%;
+    background: var(--accent);
+    opacity: 0;
+}
+#loadbar.on i {
+    opacity: 1;
+    -webkit-animation: slide 1.1s linear infinite;
+    animation: slide 1.1s linear infinite;
+}
+@-webkit-keyframes slide { from { -webkit-transform: translateX(-100%);} to { -webkit-transform: translateX(400%);} }
+@keyframes slide { from { transform: translateX(-100%);} to { transform: translateX(400%);} }
+
+#main {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: var(--safe-y);
+}
+
+/* rail */
+
+#rail {
+    flex: 0 0 auto;
+    width: 17rem;
+    padding: 0 1rem 0 var(--safe-x);
+    overflow: hidden;
+}
+
+.rail-item {
+    display: block;
+    padding: 0.7rem 0.9rem;
+    margin-bottom: 0.25rem;
+    border-radius: var(--radius);
+    color: var(--dim);
+    font-size: 1.45rem;
+    border: 2px solid transparent;
+}
+.rail-item.current { color: var(--text); font-weight: 600; }
+.rail-item.current::before {
+    content: "";
+    display: inline-block;
+    width: 4px; height: 1em;
+    background: var(--accent);
+    margin-right: 0.6em;
+    vertical-align: -0.15em;
+}
+.rail-item.focused {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #10101c;
+    font-weight: 600;
+}
+/* The marker that says which view is showing would vanish into the fill. */
+.rail-item.focused.current::before { background: #10101c; }
+
+/* content */
+
+#content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 var(--safe-x) 4rem 0.5rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+.section-title {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin: 1.6rem 0 0.8rem 0.6rem;
+    color: var(--text);
+}
+.section-title span { color: var(--faint); font-weight: 400; margin-left: 0.6em; font-size: 0.9em; }
+
+/* Horizontal shelf, used on the start page and on category pages. */
+.shelf {
+    display: flex;
+    gap: var(--gap);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.6rem;
+    scrollbar-width: none;
+}
+.shelf::-webkit-scrollbar { display: none; }
+
+/* Wrapping grid, used everywhere else. */
+.grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap);
+    padding: 0.6rem;
+}
+
+/* cards */
+
+.card {
+    flex: 0 0 auto;
+    width: var(--card-w);
+    border-radius: var(--radius);
+    border: 3px solid transparent;
+    background: var(--surface);
+    overflow: hidden;
+    -webkit-transition: -webkit-transform 90ms ease-out;
+    transition: transform 90ms ease-out;
+}
+
+.card .thumb {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    background: var(--surface-2);
+}
+.card .thumb img {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.card .thumb .glyph {
+    position: absolute;
+    top: 50%; left: 50%;
+    -webkit-transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    color: var(--faint);
+}
+
+.card .meta {
+    padding: 0.7rem 0.8rem 0.85rem;
+}
+.card .name {
+    font-size: 1.3rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.card .desc {
+    font-size: 1.15rem;
+    color: var(--dim);
+    margin-top: 0.2rem;
+    height: 2.5em;
+    overflow: hidden;
+}
+
+.card.focused {
+    border-color: var(--accent);
+    background: var(--surface-2);
+    -webkit-box-shadow: 0 0 0 2px rgba(255, 224, 0, 0.35);
+    box-shadow: 0 0 0 2px rgba(255, 224, 0, 0.35);
+    -webkit-transform: scale(1.045);
+    transform: scale(1.045);
+}
+.card.focused .desc { color: var(--text); }
+
+.badge {
+    position: absolute;
+    top: 0.5rem; left: 0.5rem;
+    background: var(--live);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 0.15em 0.5em;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+.badge.folder { background: rgba(0,0,0,0.7); color: #fff; }
+
+/*
+ * Most of TV4's catalogue needs a subscription and this UI cannot sign in, so
+ * those cards are marked rather than hidden: the listing stays the same shape
+ * as the website's, and nothing is a surprise when Cross does nothing.
+ * Parked on the right so it never collides with Live.
+ */
+.badge.paid {
+    left: auto;
+    right: 0.5rem;
+    background: rgba(0,0,0,0.75);
+    color: var(--paid);
+}
+
+/* Series header. */
+.showhead {
+    display: flex;
+    gap: 1.6rem;
+    padding: 0.8rem 0.6rem 0.4rem;
+    align-items: flex-start;
+}
+/*
+ * The box is given here rather than left to the file. TV4 serves 16:9 for some
+ * titles and a 2:3 poster for others, and an unsized <img> is both 743px tall
+ * for the poster -- pushing the first season off a 1080p screen -- and zero
+ * pixels tall until it arrives, so the listing below it jumps once it does.
+ * A fixed box costs a crop and buys a header that is the same height before
+ * and after loading, and that always leaves room for the first row.
+ */
+.showhead img {
+    flex: 0 0 auto;
+    width: 24rem;
+    height: 13.5rem;
+    object-fit: cover;
+    border-radius: var(--radius);
+    display: block;
+    background: var(--surface-2);
+}
+.showhead .txt { flex: 1 1 auto; min-width: 0; padding-top: 0.4rem; }
+.showhead h2 { font-size: 2.4rem; font-weight: 700; margin-bottom: 0.5rem; }
+
+/* Some synopses run for paragraphs; four lines is as much as the header can
+   spend without pushing the seasons off the screen. */
+.showhead p {
+    color: var(--dim);
+    font-size: 1.3rem;
+    max-width: 60ch;
+    max-height: 5.4em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+}
+
+/* Account screen. */
+.account {
+    padding: 1.2rem 0.6rem;
+    max-width: 60rem;
+}
+.account .status {
+    margin-bottom: 1rem;
+}
+.account .status b {
+    display: block;
+    font-size: 2rem;
+    font-weight: 700;
+}
+.account .status b.on { color: var(--accent); }
+.account .status b.off { color: var(--dim); }
+.account .status span {
+    display: block;
+    color: var(--faint);
+    font-size: 1.2rem;
+    margin-top: 0.2rem;
+}
+.account p {
+    color: var(--dim);
+    font-size: 1.3rem;
+    margin-bottom: 1.2rem;
+    max-width: 62ch;
+}
+.account .action {
+    display: block;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.6rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 3px solid transparent;
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+.account .action.focused {
+    border-color: var(--accent);
+    background: var(--surface-2);
+}
+/*
+ * The token is a long opaque string and the console's keyboard fills it in, so
+ * the field only has to be big enough to show that something landed in it.
+ */
+.account textarea {
+    display: block;
+    width: 100%;
+    margin-bottom: 0.8rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--radius);
+    background: #000;
+    color: var(--text);
+    border: 3px solid var(--accent);
+    font-family: monospace;
+    font-size: 1.1rem;
+    resize: none;
+    word-break: break-all;
+}
+.account .drm {
+    margin-top: 1.4rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+    color: var(--faint);
+    font-size: 1.2rem;
+}
+.account .drm .warn { color: var(--paid); }
+
+/* Notices. */
+.notice {
+    padding: 3rem 1rem;
+    color: var(--dim);
+    font-size: 1.5rem;
+}
+.notice b { display: block; color: var(--text); margin-bottom: 0.4rem; font-size: 1.7rem; }
+.notice.error b { color: var(--live); }
+
+/* player */
+
+#player {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #000;
+    z-index: 50;
+}
+
+#video {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    display: block;
+}
+#video::-webkit-media-controls { display: none !important; }
+#video::cue {
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    font-size: 1.05em;
+}
+
+#osd {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    opacity: 0;
+    -webkit-transition: opacity 160ms ease-out;
+    transition: opacity 160ms ease-out;
+    /* Scrim under the bottom bar so white text holds over a bright frame. */
+    background:
+	-webkit-linear-gradient(top, rgba(0,0,0,0) 55%, rgba(0,0,0,0.85) 100%);
+    background:
+	linear-gradient(to bottom, rgba(0,0,0,0) 55%, rgba(0,0,0,0.85) 100%);
+}
+#osd.on { opacity: 1; }
+
+/*
+ * Synopsis, parked in the middle of the frame. It lives inside #osd so it
+ * fades in and out with everything else, but it needs a scrim of its own:
+ * the overlay gradient only darkens the bottom of the picture.
+ */
+#osd-desc {
+    position: absolute;
+    left: 50%;
+    top: 40%;
+    width: 75%;
+    -webkit-transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%);
+    padding: 1.4rem 1.6rem;
+    border-radius: var(--radius);
+    background: rgba(0,0,0,0.62);
+    font-size: 2rem;
+    line-height: 1.5;
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    /*
+     * A long synopsis must never grow down into the bottom bar. Clamp to six
+     * lines; max-height holds the box to the same height on an engine without
+     * -webkit-line-clamp, at the cost of cutting the last line mid-stroke
+     * instead of ellipsing it.
+     */
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+}
+
+.osd-bottom {
+    position: absolute;
+    left: var(--safe-x);
+    right: var(--safe-x);
+    bottom: var(--safe-y);
+}
+/*
+ * Title left, state right, on one row.
+ *
+ * Deliberately not flexbox: an engine that falls back to the old -webkit-box
+ * model collapses a flexible child that also clips its text, which loses the
+ * title outright. A relative box with the state parked on the right needs
+ * nothing newer than CSS 2.1, and the padding keeps a long title from running
+ * underneath it.
+ */
+.osd-line {
+    position: relative;
+    padding-right: 18.75rem;
+    min-height: 2.5rem;
+}
+#osd-name {
+    font-size: 1.7rem;
+    font-weight: 600;
+    line-height: 2.5rem;
+    /* Long series titles are the rule, not the exception: clip, never wrap. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#osd-state {
+    position: absolute;
+    right: 0;
+    top: 0;
+    font-size: 1.4rem;
+    line-height: 2.5rem;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-align: right;
+}
+.bar {
+    position: relative;
+    height: 6px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 3px;
+    margin: 0.3rem 0 0.5rem;
+}
+.bar i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    border-radius: 3px;
+}
+.bar b {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 16px; height: 16px;
+    margin: -8px 0 0 -8px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+.times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 1.3rem;
+    color: #d3d8d8;
+    font-variant-numeric: tabular-nums;
+}
+#osd-name, #osd-state, .times, #osd-tech {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+}
+/* Stream facts. Deliberately quiet: it is reference, not chrome. */
+#osd-tech {
+    margin-top: 0.8rem;
+    text-align: right;
+    font-size: 1.15rem;
+    color: #9aa1a1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+}
+#osd-tech .warn { color: var(--paid); }
+
+#spinner {
+    position: absolute;
+    top: 24px; left: 24px;
+    width: 48px; height: 48px;
+}
+#spinner i {
+    display: block;
+    width: 100%; height: 100%;
+    border: 4px solid rgba(255,255,255,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    -webkit-animation: spin 0.8s linear infinite;
+    animation: spin 0.8s linear infinite;
+}
+@-webkit-keyframes spin { to { -webkit-transform: rotate(360deg); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* overlays */
+
+#toast {
+    position: fixed;
+    left: 50%;
+    bottom: 12vh;
+    -webkit-transform: translateX(-50%);
+    transform: translateX(-50%);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    padding: 0.8rem 1.4rem;
+    border-radius: var(--radius);
+    font-size: 1.4rem;
+    z-index: 70;
+    max-width: 70vw;
+}
+#toast.error { border-left-color: var(--live); }
+
+.icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+    fill: currentColor;
+    -webkit-user-select: none;
+    user-select: none;
+}
+.badge.folder .icon { vertical-align: -0.1em; }
