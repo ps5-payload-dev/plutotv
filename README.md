@@ -154,6 +154,19 @@ Two requests then cover the whole catalogue:
   and both are read afresh from every response. A catalogue with no film-only
   section falls back to leaving every film where it is.
 
+  Inside a genre the titles are alphabetical, which is what the site's own A-Z
+  row does — it runs "100 Below Zero", "40 Days and Nights", "7 Days to Vegas",
+  "A Time For Dying", so a plain string order rather than a numeric one. The
+  genres are alphabetical for the same reason: Pluto's order is editorial and
+  is not in the response, so there is nothing faithful to copy, and the order
+  the viewer can predict is the next best thing. It also opens on Action &
+  Adventure, as the site's own row does.
+
+  Sorting asks the session which language the catalogue is in, because a naive
+  comparison files Å, Ä and Ö among the As and Os where Swedish puts them after
+  Z. The tag comes out of a JWT rather than from here and `Intl` is not on every
+  browser this runs in, so each step is tried and neither is trusted.
+
   What goes into which half is otherwise asked for by name. Having seasons — or being
   labelled a series — is what makes something a show; being labelled a film is
   what makes something a film. The catalogue holds more than the two: Sports

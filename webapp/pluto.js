@@ -151,6 +151,7 @@ var Pluto = (function () {
 
     function clearCache() {
         vodIndex = null;
+        collate = null;
         cache = {};
     }
 
@@ -640,12 +641,20 @@ var Pluto = (function () {
      */
     function entryOfGenre(genre, kind, items) {
         var n = items.length;
+        var art = "";
+        var i;
+
+        // The titles are in alphabetical order, and whichever happens to be
+        // first may have no artwork, so take the first that does.
+        for (i = 0; i < items.length && !art; i++) {
+            art = pickImage(items[i]);
+        }
 
         return {
             id: "genre:" + kind + ":" + genre,
             name: genre,
             description: n + (n === 1 ? " title" : " titles"),
-            image: pickImage(items[0]),
+            image: art,
             type: "folder",
             live: false,
             paid: false
@@ -912,6 +921,60 @@ var Pluto = (function () {
      * is whatever that section turns out to contain, and both are read afresh
      * from each response.
      */
+    /*
+     * Comparing two titles by name.
+     *
+     * Alphabetical is what the site does inside a genre -- its A-Z row runs
+     * "100 Below Zero", "40 Days and Nights", "7 Days to Vegas", "A Time For
+     * Dying", "Abilene Town", which is a plain string order rather than a
+     * numeric one. What it must not be is a naive one: this catalogue is
+     * Swedish, and Å, Ä and Ö sort after Z there while an English collation
+     * files them among the As and Os.
+     *
+     * So the session's language decides it where there is one to ask. That tag
+     * comes out of a JWT rather than from here, and Intl is not on every
+     * browser this runs in, so each step is tried and neither is trusted; the
+     * last resort compares code points, which happens to put the Swedish
+     * letters in the right place anyway.
+     */
+    var collate = null;
+
+    function nameOrder() {
+        var lang = text(session && session.language) || undefined;
+
+        try {
+            if (window.Intl && window.Intl.Collator) {
+                return new window.Intl.Collator(lang).compare;
+            }
+        } catch (ignored) {
+            // A tag Intl will not take; fall through.
+        }
+
+        try {
+            "a".localeCompare("b", lang);
+            return function (a, b) {
+                return a.localeCompare(b, lang);
+            };
+        } catch (alsoIgnored) {
+            // Neither is usable here; code points it is.
+        }
+
+        return function (a, b) {
+            return a < b ? -1 : a > b ? 1 : 0;
+        };
+    }
+
+    function byName(a, b) {
+        if (!collate) {
+            collate = nameOrder();
+        }
+        return collate(text(a), text(b));
+    }
+
+    function byEntryName(a, b) {
+        return byName(a.name, b.name);
+    }
+
     function filmSections(list) {
         var known = {};
         var mixed = {};
@@ -1001,6 +1064,12 @@ var Pluto = (function () {
             });
         });
 
+        Object.keys(ix).forEach(function (kind) {
+            Object.keys(ix[kind]).forEach(function (genre) {
+                ix[kind][genre].sort(byEntryName);
+            });
+        });
+
         return ix;
     }
 
@@ -1014,22 +1083,18 @@ var Pluto = (function () {
     }
 
     /*
-     * The genres of one half of the catalogue, fullest first.
+     * The genres of one half of the catalogue, alphabetically.
      *
      * Pluto's own order is editorial and is not in the response, so there is
-     * nothing faithful to copy. Size is the next best thing: it is stable
-     * between loads, and it puts the genres worth browsing at the top of the
-     * screen rather than leaving a genre of three films above one of three
-     * hundred.
+     * nothing faithful to copy. Alphabetical is at least the order the viewer
+     * can predict, it reads the same way as the titles inside a genre, and it
+     * happens to open on Action & Adventure as the site's own row does.
      */
     function vodGenres(kind) {
         return indexed().then(function (ix) {
             var by = ix[kind] || {};
 
-            return Object.keys(by).sort(function (a, b) {
-                return by[b].length - by[a].length ||
-                    (a < b ? -1 : a > b ? 1 : 0);
-            }).map(function (genre) {
+            return Object.keys(by).sort(byName).map(function (genre) {
                 return entryOfGenre(genre, kind, by[genre]);
             });
         });
