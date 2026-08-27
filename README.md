@@ -105,19 +105,39 @@ Two requests then cover the whole catalogue:
   having as a second door rather than a first.
 - **On demand** comes from `api.pluto.tv/v3/vod/categories` asked with
   `includeItems=true`, which returns every category with its titles inline.
-  Home, Movies and Shows are all served from that one answer: films and shows
-  are mixed together inside each category, so the two views are the same rows
-  filtered two ways rather than two different requests. A category holding
-  nothing of the kind being asked for drops out instead of drawing an empty
-  shelf.
 
-  Both halves of that filter are asked for by name. Having seasons — or being
+  `offset` on that endpoint is the page size for the category list rather than
+  a starting point, and it defaults to 100 while there are rather more
+  categories than that — so it is asked for a thousand, which is the whole
+  list. The items inside a category have no such lever: they are capped at a
+  hundred however the request is phrased, and `totalItemsCount` is how a
+  category says it is holding more than it handed over. A shelf that was capped
+  counts what it actually has and marks it `100+` rather than naming a total it
+  cannot stand behind.
+
+  Home, Movies and Shows are all served from that one answer.
+
+  Movies and Shows are navigated by *genre*, which is what pluto.tv itself
+  does — Action & Adventure, Comedy, Sci-Fi & Fantasy, Drama, Romance,
+  Thriller, Documentaries, Horror — and not by category. The categories are a
+  different thing: there are getting on for four hundred of them, they overlap
+  heavily (one film sits in Top Titles and in an A-Z and in a themed
+  collection), and plenty are editorial rather than navigational. A shelf per
+  category is why Movies used to look nothing like the site.
+
+  Every on-demand item names its own genre, so the grouping is built from the
+  items rather than asked for: collect the catalogue, drop the duplicates,
+  bucket what is left. Genre names therefore arrive in whatever language the
+  region answers in, as they do on the site. The genres are ordered fullest
+  first — Pluto's own order is editorial and is not in the response, so there
+  is nothing faithful to copy.
+
+  What goes into which half is asked for by name. Having seasons — or being
   labelled a series — is what makes something a show; being labelled a film is
-  what makes something a film. The catalogue holds more than the two: categories
-  like Sports and News are full of single items that are neither, and taking
-  "not a series" for a film swept every one of them into Movies. They are still
-  in the catalogue and still reachable from Home; they just no longer count as
-  films.
+  what makes something a film. The catalogue holds more than the two: Sports
+  and News are full of single items that are neither, and taking "not a series"
+  for a film swept every one of them into Movies. They are still in the
+  catalogue and still reachable from Home; they are simply not films.
 
   Asking for the label only works while the label is there to ask for, and not
   every region's catalogue is filled in to the same standard. So the response is

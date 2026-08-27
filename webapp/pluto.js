@@ -150,6 +150,7 @@ var Pluto = (function () {
     }
 
     function clearCache() {
+        vodIndex = null;
         cache = {};
     }
 
@@ -592,15 +593,59 @@ var Pluto = (function () {
         };
     }
 
+    // Items inside a category are capped by the API however they are
+    // asked for; totalItemsCount is how a category says it held more.
+    var VOD_ITEM_CAP = 100;
+
+    /*
+     * How many titles a shelf says it holds.
+     *
+     * The count is of what was actually handed over and then filtered, which
+     * is the honest number for a category that arrived whole. One that was
+     * capped is holding films this never saw, and there is no way to tell how
+     * many of the missing ones are films -- so it counts what it has and says
+     * there are more, rather than naming a total it cannot know.
+     */
+    function countText(shown, item) {
+        var held = (item.items || []).length;
+        var total = item.totalItemsCount || held;
+        var more = held >= VOD_ITEM_CAP && total > held;
+
+        return shown + (more ? "+" : "") +
+            (shown === 1 && !more ? " title" : " titles");
+    }
+
     function entryOfCategory(item) {
         var id = text(item._id || item.id);
-        var count = item.totalItemsCount || (item.items || []).length;
+        var held = (item.items || []).length;
 
         return {
             id: "cat:" + id,
             name: text(item.name),
-            description: count ? count + (count === 1 ? " title" : " titles") : "",
+            description: held ? countText(held, item) : "",
             image: pickImage(item) || pickImage((item.items || [])[0]),
+            type: "folder",
+            live: false,
+            paid: false
+        };
+    }
+
+    /*
+     * A genre, as a folder to open.
+     *
+     * The count is of the films this actually holds. Items inside a category
+     * are capped at a hundred, so a genre assembled from them is a floor
+     * rather than Pluto's own total -- but it is the honest size of what is
+     * behind the card, which is what the card is promising.
+     */
+    function entryOfGenre(genre, kind, items) {
+        var n = items.length;
+
+        return {
+            id: "genre:" + kind + ":" + genre,
+            name: genre,
+            description: n + (n === 1 ? " title" : " titles"),
+            image: pickImage(items[0]),
             type: "folder",
             live: false,
             paid: false
@@ -769,12 +814,23 @@ var Pluto = (function () {
      * category, and it is the same request the home page is built from, so
      * everything on-demand costs a single call the first time and nothing
      * afterwards.
+     *
+     * offset is the page size for the category list, not a starting point --
+     * it defaults to 100 and there are rather more categories than that, so
+     * asking for a hundred is asking to lose the tail of the catalogue.
+     * limit is not one of the parameters this endpoint reads; it is sent
+     * because it costs nothing and would be the obvious name for the same
+     * thing if that ever changed.
+     *
+     * There is no equivalent for the items inside a category. Those are capped
+     * at a hundred whatever is asked for, and totalItemsCount is how a
+     * category says it is holding more than it handed over.
      */
     function fetchVodCategories() {
         return api(API, "/v3/vod/categories", {
             includeItems: "true",
             deviceType: DEVICE_TYPE,
-            offset: 0,
+            offset: 1000,
             limit: 1000
         }).then(function (json) {
             var list = (json && json.categories) || [];
@@ -797,52 +853,102 @@ var Pluto = (function () {
     }
 
     /*
-     * The catalogue, split the way Pluto's own navigation splits it.
+     * The catalogue, split the way pluto.tv splits it.
      *
-     * Films and shows are mixed together inside each category, so Movies and
-     * Shows are the same rows filtered two ways rather than two different
-     * requests -- and a category with nothing of the kind being asked for
-     * drops out rather than drawing an empty shelf. Which is what keeps a
-     * category of sports out of Movies: once the clips in it are no longer
-     * counted as films, there is nothing left in it to draw a shelf for.
+     * The site does not navigate Movies and Shows by category. It offers a
+     * short row of genres -- Action & Adventure, Comedy, Sci-Fi & Fantasy,
+     * Drama, Romance, Thriller, Documentaries, Horror -- and puts the titles
+     * of the chosen genre behind it. The categories are a different thing
+     * altogether: there are getting on for four hundred of them, they overlap
+     * heavily (one film sits in Top Titles and in an A-Z and in a themed
+     * collection), and many are editorial rather than navigational. Drawing
+     * one shelf per category, as this used to, is why Movies looked nothing
+     * like the site.
+     *
+     * Every on-demand item names its own genre, so the grouping is built from
+     * the items rather than asked for: collect the catalogue, drop the
+     * duplicates, and bucket what is left. That also means the genre names
+     * come back in whatever language the region answers in, which is what the
+     * site shows too.
      */
-    function vodItemsOfKind(items, kind) {
-        return (items || []).filter(function (item) {
-            if (kind === "shows") {
-                return isSeries(item);
-            }
-            return vodLoose ? !isSeries(item) : isMovie(item);
-        });
+    function kindOf(item) {
+        if (isSeries(item)) {
+            return "shows";
+        }
+        if (vodLoose || isMovie(item)) {
+            return "movies";
+        }
+        // A game, a segment, a highlights reel: in the catalogue, but not a
+        // film and not a show, so it belongs to neither view.
+        return "";
     }
 
-    function vodRows(kind) {
-        return vodCategories().then(function (list) {
-            var rows = [];
-            list.forEach(function (c) {
-                var n = vodItemsOfKind(c.items, kind).length;
-                if (!n) {
+    var vodIndex = null;
+
+    function buildIndex(list) {
+        var seen = {};
+        var ix = {movies: {}, shows: {}};
+
+        list.forEach(function (c) {
+            (c.items || []).forEach(function (item) {
+                var id = text(item._id || item.id);
+                var kind = id && !seen[id] ? kindOf(item) : "";
+                var genre;
+
+                if (!kind) {
                     return;
                 }
-                rows.push({
-                    name: text(c.name),
-                    detail: n + (n === 1 ? " title" : " titles"),
-                    panelId: text(c._id || c.id),
-                    kind: kind
-                });
+                seen[id] = true;
+
+                genre = text(item.genre) || "Other";
+                if (!ix[kind][genre]) {
+                    ix[kind][genre] = [];
+                }
+                ix[kind][genre].push(item);
             });
-            return rows;
+        });
+
+        return ix;
+    }
+
+    function indexed() {
+        return vodCategories().then(function (list) {
+            if (!vodIndex) {
+                vodIndex = buildIndex(list);
+            }
+            return vodIndex;
         });
     }
 
-    function categoryItemsOfKind(id, kind) {
-        return vodCategories().then(function (list) {
-            var i;
-            for (i = 0; i < list.length; i++) {
-                if (text(list[i]._id || list[i].id) === id) {
-                    return vodItemsOfKind(list[i].items, kind).map(entryOfVod);
-                }
+    /*
+     * The genres of one half of the catalogue, fullest first.
+     *
+     * Pluto's own order is editorial and is not in the response, so there is
+     * nothing faithful to copy. Size is the next best thing: it is stable
+     * between loads, and it puts the genres worth browsing at the top of the
+     * screen rather than leaving a genre of three films above one of three
+     * hundred.
+     */
+    function vodGenres(kind) {
+        return indexed().then(function (ix) {
+            var by = ix[kind] || {};
+
+            return Object.keys(by).sort(function (a, b) {
+                return by[b].length - by[a].length ||
+                    (a < b ? -1 : a > b ? 1 : 0);
+            }).map(function (genre) {
+                return entryOfGenre(genre, kind, by[genre]);
+            });
+        });
+    }
+
+    function genreItems(genre, kind) {
+        return indexed().then(function (ix) {
+            var items = (ix[kind] || {})[genre];
+            if (!items) {
+                throw new Error("Unknown genre: " + genre);
             }
-            throw new Error("Unknown category");
+            return items.map(entryOfVod);
         });
     }
 
@@ -963,9 +1069,6 @@ var Pluto = (function () {
         if (kind === "channels") {
             return channelsIn(id);
         }
-        if (kind === "movies" || kind === "shows") {
-            return categoryItemsOfKind(id, kind);
-        }
         if (kind === "category") {
             return categoryItems(id);
         }
@@ -1079,7 +1182,8 @@ var Pluto = (function () {
         livePanels: livePanels,
         categories: categories,
         categoryItems: categoryItems,
-        vodRows: vodRows,
+        vodGenres: vodGenres,
+        genreItems: genreItems,
         allChannels: allChannels,
         series: series,
         season: season,

@@ -397,6 +397,15 @@
         }).join("");
     }
 
+    function genreRef(id) {
+        var rest = id.substring(id.indexOf(":") + 1);
+        var cut = rest.indexOf(":");
+        return {
+            kind: rest.substring(0, cut),
+            genre: rest.substring(cut + 1)
+        };
+    }
+
     function frameOf(view, param, title) {
         return {view: view, param: param, title: title, focus: 0};
     }
@@ -471,10 +480,17 @@
 
         if (frame.view === "movies" || frame.view === "shows") {
             crumb([frame.view === "movies" ? "Movies" : "Shows"]);
-            Pluto.vodRows(frame.view).then(function (rows) {
-                if (!fresh()) { return; }
-                renderShelves(my, rows);
+            Pluto.vodGenres(frame.view).then(function (l) {
+                done(l);
             }, fail);
+            return;
+        }
+
+        if (frame.view === "genre") {
+            crumb([frame.param.kind === "movies" ? "Movies" : "Shows",
+                   frame.title]);
+            Pluto.genreItems(frame.param.genre, frame.param.kind)
+                .then(function (l) { done(l); }, fail);
             return;
         }
 
@@ -653,6 +669,8 @@
                 go(frameOf("series", entry.id.substring(7), entry.name));
             } else if (entry.id.indexOf("season:") === 0) {
                 go(frameOf("season", seasonRef(entry.id), entry.name));
+            } else if (entry.id.indexOf("genre:") === 0) {
+                go(frameOf("genre", genreRef(entry.id), entry.name));
             } else if (entry.id.indexOf("cat:") === 0) {
                 go(frameOf("category", entry.id.substring(4), entry.name));
             } else if (entry.id.indexOf("chcat:") === 0) {
