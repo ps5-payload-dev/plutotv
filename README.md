@@ -132,7 +132,29 @@ Two requests then cover the whole catalogue:
   first — Pluto's own order is editorial and is not in the response, so there
   is nothing faithful to copy.
 
-  What goes into which half is asked for by name. Having seasons — or being
+  Labelling an item a film is not the same as belonging in Movies. A handball
+  match, a diving championship and an MTV Unplugged concert all come back typed
+  `movie` — each with its own `seriesID`, no seasons, nothing in the item to say
+  otherwise — and the site files them under Sport, under Musik and under the
+  series *MTV Unplugged*. Nothing on the item separates them from a documentary
+  or a stand-up special, which do belong in Movies.
+
+  The catalogue answers it indirectly. Its categories are grouped by
+  `mainCategories` into a dozen or so sections, and one of them holds nothing
+  but films — not a single series among them. That is where the site's own
+  Movies rows come from, so the genres appearing in it are, by construction, the
+  genres Pluto treats as film genres. Sports and Music are never among them;
+  Documentary, Comedy, Drama and Horror always are.
+
+  So that section is read for its *genres* rather than its contents, and every
+  film in those genres counts wherever it happens to be filed. Reading it for
+  its contents instead would lose the documentaries and the stand-up, which live
+  in mixed sections of their own. Nothing here is named or numbered: the section
+  ids are regional, the genre list is whatever that section turns out to hold,
+  and both are read afresh from every response. A catalogue with no film-only
+  section falls back to leaving every film where it is.
+
+  What goes into which half is otherwise asked for by name. Having seasons — or being
   labelled a series — is what makes something a show; being labelled a film is
   what makes something a film. The catalogue holds more than the two: Sports
   and News are full of single items that are neither, and taking "not a series"

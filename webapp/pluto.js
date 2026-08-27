@@ -885,7 +885,96 @@ var Pluto = (function () {
 
     var vodIndex = null;
 
+    /*
+     * Which genres are film genres.
+     *
+     * Labelling an item "movie" is not the same as belonging in Movies. A
+     * handball match, a diving championship and an MTV Unplugged concert all
+     * come back typed as films -- each with its own seriesID, no seasons,
+     * nothing in the item to say otherwise -- and the site still files them
+     * under Sport, under Musik and under the series MTV Unplugged. Nothing on
+     * the item distinguishes them from a documentary or a stand-up special,
+     * which do belong in Movies.
+     *
+     * The catalogue answers it indirectly. Its categories are grouped by
+     * mainCategories into a dozen or so sections, and one of them holds
+     * nothing but films -- not a single series among them. That section is
+     * where the site's own Movies rows come from, so the genres appearing in
+     * it are, by construction, the genres Pluto considers film genres. Sports
+     * and Music are never among them; Documentary, Comedy, Drama and Horror
+     * always are.
+     *
+     * So the section is read for its genres rather than its contents, and
+     * every film in those genres counts wherever it happens to be filed. That
+     * keeps the documentaries and the stand-up, which live in mixed sections
+     * of their own, while still leaving out the matches and the concerts.
+     * Nothing here is named or numbered: the ids are regional, the genre list
+     * is whatever that section turns out to contain, and both are read afresh
+     * from each response.
+     */
+    function filmSections(list) {
+        var known = {};
+        var mixed = {};
+        var sections = {};
+
+        list.forEach(function (c) {
+            var holdsSeries = (c.items || []).some(isSeries);
+
+            (c.mainCategories || []).forEach(function (m) {
+                var id = text(m.categoryID);
+                if (!id) {
+                    return;
+                }
+                known[id] = true;
+                if (holdsSeries) {
+                    mixed[id] = true;
+                }
+            });
+        });
+
+        Object.keys(known).forEach(function (id) {
+            if (!mixed[id]) {
+                sections[id] = true;
+            }
+        });
+
+        return sections;
+    }
+
+    /*
+     * Null rather than an empty set when the catalogue has no section of its
+     * own for films, or is arranged some way this does not recognise. The
+     * caller then leaves every film where it is, so Movies is looser than the
+     * site rather than empty.
+     */
+    function filmGenres(list) {
+        var sections = filmSections(list);
+        var genres = {};
+        var found = false;
+
+        list.forEach(function (c) {
+            var filed = (c.mainCategories || []).some(function (m) {
+                return sections[text(m.categoryID)] === true;
+            });
+
+            if (!filed) {
+                return;
+            }
+
+            (c.items || []).forEach(function (item) {
+                if (isSeries(item)) {
+                    return;
+                }
+                genres[text(item.genre) || "Other"] = true;
+                found = true;
+            });
+        });
+
+        return found ? genres : null;
+    }
+
     function buildIndex(list) {
+        var films = filmGenres(list);
         var seen = {};
         var ix = {movies: {}, shows: {}};
 
@@ -901,6 +990,10 @@ var Pluto = (function () {
                 seen[id] = true;
 
                 genre = text(item.genre) || "Other";
+                if (kind === "movies" && films && films[genre] !== true) {
+                    return;
+                }
+
                 if (!ix[kind][genre]) {
                     ix[kind][genre] = [];
                 }
