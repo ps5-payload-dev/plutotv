@@ -79,7 +79,7 @@
     }
 
     var toastTimer = null;
-    function toast(msg, isError) {
+    function toast(msg, isError, ms) {
         elToast.textContent = msg;
         elToast.className = isError ? "error" : "";
         elToast.hidden = false;
@@ -88,7 +88,7 @@
         }
         toastTimer = setTimeout(function () {
             elToast.hidden = true;
-        }, 3200);
+        }, ms || 3200);
     }
 
     function tickClock() {
@@ -685,6 +685,38 @@
 
     var hls = null;
     var currentEntry = null;
+
+    /*
+     * How long a stream is given to produce a frame.
+     *
+     * WebKit's own HLS answers a manifest it cannot use by saying nothing at
+     * all: no loadedmetadata, no error event, nothing to hang a message on.
+     * The spinner then turns until the viewer gives up, which is no way to
+     * find out that a console cannot decode something. So playback is given a
+     * deadline, and missing it is treated as a failure like any other.
+     *
+     * Generous, because it is also the ceiling for an honestly slow start on a
+     * cold connection, and cutting one of those off would be worse than the
+     * problem being solved.
+     */
+    var STALL_MS = 15000;
+    var stallTimer = null;
+
+    function clearStall() {
+        if (stallTimer) {
+            clearTimeout(stallTimer);
+            stallTimer = null;
+        }
+    }
+
+    function armStall(fn) {
+        clearStall();
+        stallTimer = setTimeout(function () {
+            stallTimer = null;
+            fn();
+        }, STALL_MS);
+    }
+
     var osdTimer = null;
     var seekAccum = 0;
     var seekTimer = null;
@@ -890,6 +922,69 @@
         return seen.join(" / ");
     }
 
+    /*
+     * Which of the manifest's codecs this console has no decoder for.
+     *
+     * MediaSource.isTypeSupported is what hls.js asks before it hands a
+     * segment to the browser, and it is the nearest thing to the decoder's own
+     * opinion that script can get at. The element is asked as well, because
+     * WebKit's built-in HLS never goes through MediaSource at all, and a
+     * console can perfectly well play something natively that it refuses
+     * through MSE.
+     *
+     * Named codecs rather than a raw string: "HEVC" says more from three
+     * metres away than hvc1.2.4.L120.90 does.
+     */
+    function unplayableCodecs() {
+        var bad = [];
+        var seen = {};
+
+        // One at a time. A rendition names its video and audio codecs
+        // together, and asking about the pair only establishes that the pair
+        // is unplayable -- which would blame the AAC alongside the HEVC that
+        // is actually the trouble.
+        (variants || []).forEach(function (v) {
+            text(v.codecs).split(/[,\s]+/).forEach(function (c) {
+                var audio, mime, mse, el, name;
+
+                if (!c || seen[c]) {
+                    return;
+                }
+                seen[c] = true;
+
+                audio = /^(mp4a|ac-3|ec-3|opus|alac|flac)/.test(c);
+                mime = (audio ? "audio/mp4" : "video/mp4") +
+                    '; codecs="' + c + '"';
+
+                mse = !!(window.MediaSource &&
+                         window.MediaSource.isTypeSupported &&
+                         window.MediaSource.isTypeSupported(mime));
+                el = !!(video.canPlayType && video.canPlayType(mime));
+
+                if (!mse && !el) {
+                    name = codecName(c) || c;
+                    if (bad.indexOf(name) < 0) {
+                        bad.push(name);
+                    }
+                }
+            });
+        });
+
+        return bad;
+    }
+
+    // Why a stream that never started probably never started. The codecs are
+    // the answer often enough to be worth naming; when they are not, saying
+    // plainly that nothing came back beats a spinner that turns for ever.
+    function stallReason() {
+        var bad = unplayableCodecs();
+
+        if (bad.length) {
+            return "The console has no decoder for " + bad.join(" or ") + ".";
+        }
+        return "The stream never responded and reported no error.";
+    }
+
     // Which rendition is on screen. hls.js says so; natively it has to be
     // inferred from the height, and where several renditions share a height
     // the measured bitrate breaks the tie.
@@ -1087,6 +1182,7 @@
 
     function attach(url, entry, my) {
         var resume = entry.live ? 0 : resumePos(entry.id);
+        var triedHlsJs = false;
 
         function started() {
             // A metadata event from the source this one replaced would seek
@@ -1120,6 +1216,7 @@
         }
 
         function attachHlsJs() {
+            triedHlsJs = true;
             return loadHlsJs().then(function () {
                 if (!window.Hls || !window.Hls.isSupported()) {
                     throw new Error("No HLS playback in this browser");
@@ -1134,8 +1231,21 @@
                 });
                 hls.on(window.Hls.Events.MANIFEST_PARSED, started);
                 hls.on(window.Hls.Events.ERROR, function (evt, data) {
+                    var d = (data && data.details) || "";
+
+                    // The two it raises when the console has no decoder for
+                    // what the manifest offers. Both mean the same thing to a
+                    // viewer, and neither says it in words they would know.
+                    if (d.indexOf("Codec") >= 0 || d.indexOf("odec") >= 0) {
+                        clearStall();
+                        stop();
+                        toast("Stream did not start. " + stallReason(),
+                              true, 7000);
+                        return;
+                    }
                     if (data.fatal) {
-                        toast("Stream error: " + data.details, true);
+                        clearStall();
+                        toast("Stream error: " + d, true);
                         stop();
                     }
                 });
@@ -1143,6 +1253,56 @@
                 hls.attachMedia(video);
             });
         }
+
+        /*
+         * Nothing has played within the deadline.
+         *
+         * WebKit having gone quiet is not proof that the stream is
+         * undecodable -- it demuxes in its own way, and hls.js sometimes gets
+         * a manifest through that WebKit will not touch. So the other engine
+         * is given one turn before the stream is called a failure, and it has
+         * the better manners of the two: where it cannot play something it
+         * says which codec it choked on instead of going silent.
+         */
+        function stalled() {
+            if (!playing(my)) {
+                return;
+            }
+
+            if (!triedHlsJs) {
+                if (window.console) {
+                    console.log("no frame within " + STALL_MS +
+                                "ms on the native path; trying hls.js");
+                }
+                toast("Still loading — trying another player…");
+                try {
+                    video.removeAttribute("src");
+                    video.load();
+                } catch (ignored) {
+                    // Nothing was attached; the retry does not care.
+                }
+                armStall(stalled);
+                attachHlsJs()["catch"](function (err) {
+                    if (playing(my)) {
+                        giveUp((err && err.message) || "");
+                    }
+                });
+                return;
+            }
+
+            giveUp("");
+        }
+
+        function giveUp(extra) {
+            clearStall();
+            if (window.console) {
+                console.log("giving up on " + url + " " + extra);
+            }
+            stop();
+            toast("Stream did not start. " + stallReason(), true, 7000);
+        }
+
+        armStall(stalled);
 
         // WebKit's own HLS is the cheaper path and the one the console decodes
         // in hardware, so it stays the default. It is only stepped around for
@@ -1183,6 +1343,7 @@
 
     function stop() {
         savePos();
+        clearStall();
         // Anything still resolving belongs to a programme that is no longer
         // wanted, and must not attach itself once it arrives.
         playToken++;
@@ -1425,6 +1586,8 @@
         elSpinner.hidden = false;
     });
     video.addEventListener("playing", function () {
+        // Something decoded, so the deadline has been met.
+        clearStall();
         elSpinner.hidden = true;
         state("");
         showOsd(false);

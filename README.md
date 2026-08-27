@@ -213,6 +213,28 @@ What is left:
 - **`STITCHER_FALLBACK`** is only reached when a boot response names no
   stitcher of its own, which it normally does.
 
+## When a stream will not start
+
+WebKit's own HLS is the default path on this console, and its failure mode for
+a manifest it cannot use is to say nothing at all — no `loadedmetadata`, no
+`error` event, nothing to hang a message on. The spinner then turns for ever,
+which tells the viewer only that something is wrong and never what.
+
+So playback has a deadline. Fifteen seconds without a decoded frame is treated
+as a failure, and hls.js is given one turn at the same manifest before the
+stream is called dead: it demuxes differently, sometimes gets through where
+WebKit will not, and where it cannot it at least names the codec it choked on
+rather than going quiet.
+
+If that fails too, the manifest's own `CODECS` are put to
+`MediaSource.isTypeSupported` and to the element's `canPlayType`, and whatever
+neither will accept is named in the message — "The console has no decoder for
+HEVC" rather than a spinner. Each codec is asked about separately, since a
+rendition names its video and audio together and asking about the pair would
+blame the AAC alongside the HEVC that is actually the trouble. Both are asked
+because WebKit's built-in HLS never goes through MediaSource at all, and a
+console can play something natively that it refuses through MSE.
+
 ## No DRM, deliberately
 
 The console reports **PlayReady** through EME, and neither Widevine nor
