@@ -25,6 +25,14 @@
 
     --card-w: 18.25rem;
     --gap: 1.4rem;
+    /*
+     * Half of --gap, applied to every side of a card. Flexbox `gap` is not
+     * honoured before WebKit 612 (Safari 14.1) -- it parses and reports back
+     * from getComputedStyle, then does nothing during layout -- so spacing is
+     * carried by margins instead. Two adjacent cards contribute half each and
+     * come out --gap apart on every engine.
+     */
+    --gap-half: 0.7rem;
     --radius: 6px;
 }
 
@@ -59,10 +67,11 @@ body {
 #topbar {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
     padding: var(--safe-y) var(--safe-x) 0.9rem;
     flex: 0 0 auto;
 }
+/* Not gap: see --gap-half. One row, so an adjacent-sibling margin is exact. */
+#topbar > * + * { margin-left: 1.5rem; }
 
 #logo {
     width: 64px;
@@ -173,10 +182,8 @@ body {
 /* Horizontal shelf, used on the start page and on category pages. */
 .shelf {
     display: flex;
-    gap: var(--gap);
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0.6rem;
     scrollbar-width: none;
 }
 .shelf::-webkit-scrollbar { display: none; }
@@ -185,9 +192,16 @@ body {
 .grid {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--gap);
-    padding: 0.6rem;
 }
+
+/*
+ * Spacing for both, and the breathing room a focused card needs to scale into
+ * without landing on its neighbour. The margin runs on all four sides rather
+ * than trailing edges only, so the outer ring doubles as the container's
+ * padding and a wrapped row keeps its inset without needing to know which
+ * card starts it.
+ */
+.shelf > *, .grid > * { margin: var(--gap-half); }
 
 /* cards */
 
@@ -243,6 +257,14 @@ body {
 }
 
 .card.focused {
+    /*
+     * The scale below is enough to reach a neighbour's edge on a narrow panel.
+     * Older WebKit does not reliably promote a transformed element above its
+     * in-flow siblings, which paints the ring underneath the next card along,
+     * so say it outright.
+     */
+    position: relative;
+    z-index: 1;
     border-color: var(--accent);
     background: var(--surface-2);
     -webkit-box-shadow: 0 0 0 2px rgba(255, 224, 0, 0.35);
@@ -282,10 +304,11 @@ body {
 /* Series header. */
 .showhead {
     display: flex;
-    gap: 1.6rem;
     padding: 0.8rem 0.6rem 0.4rem;
     align-items: flex-start;
 }
+/* Not gap: see --gap-half. Poster then text, so a sibling margin is exact. */
+.showhead > * + * { margin-left: 1.6rem; }
 /*
  * The box is given here rather than left to the file. TV4 serves 16:9 for some
  * titles and a 2:3 poster for others, and an unsized <img> is both 743px tall
