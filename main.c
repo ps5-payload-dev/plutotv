@@ -119,6 +119,8 @@ int
 main(int argc, char *argv[]) {
   int err;
 
+  puts("Installing...");
+
   if((err=sceAppInstUtilInitialize())) {
     printf("sceAppInstUtilInitialize: error 0x%08X\n", err);
     return -1;
@@ -214,6 +216,8 @@ main(int argc, char *argv[]) {
     printf("install_app: error 0x%08X\n", err);
     return -1;
   }
+
+  puts("Install successful");
 
   return 0;
 }
