@@ -686,6 +686,10 @@
     var hls = null;
     var currentEntry = null;
 
+    // The last length this programme reported that was worth believing. See
+    // duration() below.
+    var knownDuration = 0;
+
     /*
      * How long a stream is given to produce a frame.
      *
@@ -773,31 +777,104 @@
                           function () { return !!window.Hls; });
     }
 
-    function posKey(id) {
-        return "tv4play.pos." + id;
+    /* ----------------------------------------------------- resume positions
+     *
+     * The whole set of positions is kept as one localStorage record.
+     *
+     * The console runs this as a web app rather than in the browser proper,
+     * and that context only hands out storage once the title asks for it --
+     * "downloadDataSize" in sce_sys/param.json. Without that entry a write is
+     * accepted, throws nothing and keeps nothing, so a position would survive
+     * being stopped and not survive being closed.
+     *
+     * One record rather than a key per programme: the old layout left a key
+     * behind for every episode ever half-watched with nothing to ever collect
+     * them, and there is no way to enumerate them back out to trim. It also
+     * wrote them under tv4play's name, this having started life as that app.
+     */
+    var POS_KEY = "plutotv.pos";
+    var POS_LIMIT = 120;
+
+    var store = {
+        read: function () {
+            try {
+                return window.localStorage.getItem(POS_KEY) || "";
+            } catch (e) {
+                return "";
+            }
+        },
+        write: function (s) {
+            try {
+                window.localStorage.setItem(POS_KEY, s);
+            } catch (e) { /* revoked permission, full quota: nothing to do */ }
+        }
+    };
+
+    function readPositions() {
+        var map;
+        try {
+            var raw = store.read();
+            map = raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            map = {};
+        }
+        if (!map || typeof map !== "object") {
+            map = {};
+        }
+        return map;
+    }
+
+    function writePositions(map) {
+        // Without a bound this record grows for every episode ever
+        // half-watched. Keep the most recently touched.
+        var ids = Object.keys(map);
+        if (ids.length > POS_LIMIT) {
+            ids.sort(function (a, b) {
+                return (map[b].at || 0) - (map[a].at || 0);
+            });
+            var trimmed = {};
+            ids.slice(0, POS_LIMIT).forEach(function (id) {
+                trimmed[id] = map[id];
+            });
+            map = trimmed;
+        }
+        store.write(JSON.stringify(map));
+    }
+
+    function forgetPos(id) {
+        var map = readPositions();
+        if (map[id]) {
+            delete map[id];
+            writePositions(map);
+        }
     }
 
     function savePos() {
-        if (!currentEntry || !isFinite(video.duration) || video.duration < 300) {
+        var dur = duration();
+        var t = video.currentTime;
+        if (!currentEntry || !isFinite(dur) || dur < 300) {
+            // The usual reason a position is never stored: the length is not
+            // known, or the stream reports itself as live.
             return;
         }
-        try {
-            var t = video.currentTime;
-            if (t > 60 && t < video.duration - 90) {
-                localStorage.setItem(posKey(currentEntry.id), String(Math.floor(t)));
-            } else {
-                localStorage.removeItem(posKey(currentEntry.id));
-            }
-        } catch (e) { /* private mode, no storage: not worth a message */ }
+        var map = readPositions();
+        if (t > 60 && t < dur - 90) {
+            map[currentEntry.id] = {t: Math.floor(t), at: Date.now()};
+        } else {
+            delete map[currentEntry.id];
+        }
+        writePositions(map);
     }
 
     function resumePos(id) {
-        try {
-            var v = parseInt(localStorage.getItem(posKey(id)), 10);
-            return isNaN(v) ? 0 : v;
-        } catch (e) {
+        var map = readPositions();
+        var rec = map[id];
+        if (!rec) {
             return 0;
         }
+        // Older records were a bare number.
+        var t = typeof rec === "number" ? rec : rec.t;
+        return (typeof t === "number" && isFinite(t) && t > 0) ? t : 0;
     }
 
     /* --------------------------------------------------------- stream info
@@ -1151,6 +1228,7 @@
         }
 
         currentEntry = entry;
+        knownDuration = 0;
         mode = "player";
         elPlayer.hidden = false;
         elSpinner.hidden = false;
@@ -1184,6 +1262,43 @@
         var resume = entry.live ? 0 : resumePos(entry.id);
         var triedHlsJs = false;
 
+        /*
+         * Restoring a position is not one assignment to currentTime. At the
+         * moment a stream first reports itself ready the seekable range is
+         * often still empty, and an assignment made then is dropped on the
+         * floor -- which is what left playback at the start while the toast
+         * claimed otherwise. So ask repeatedly until the element agrees, and
+         * only announce it once it has actually happened.
+         */
+        function applyResume() {
+            var tries = 0;
+
+            function attempt() {
+                if (!playing(my)) {
+                    return;
+                }
+                // Nothing but the seek can have moved the clock this far this
+                // soon: a saved position is never less than a minute in, and
+                // the window below is five seconds wide.
+                if (video.currentTime >= resume - 2) {
+                    toast("Resuming from " + fmtTime(resume));
+                    return;
+                }
+                if (tries > 20) {
+                    // Say nothing rather than something untrue. The saved
+                    // position is left alone, so the next attempt still has it.
+                    return;
+                }
+                tries++;
+                try {
+                    video.currentTime = resume;
+                } catch (e) { /* not seekable yet; the retry covers it */ }
+                setTimeout(attempt, 250);
+            }
+
+            attempt();
+        }
+
         function started() {
             // A metadata event from the source this one replaced would seek
             // and play the wrong programme.
@@ -1191,15 +1306,14 @@
                 return;
             }
             elSpinner.hidden = true;
-            if (resume > 5) {
-                try { video.currentTime = resume; } catch (e) { /* live */ }
-                toast("Resuming from " + fmtTime(resume));
-            }
             var p = video.play();
             if (p && p["catch"]) {
                 p["catch"](function (err) {
-                    toast("Uppspelning blockerad: " + err.message, true);
+                    toast("Playback blocked: " + err.message, true);
                 });
+            }
+            if (resume > 5) {
+                applyResume();
             }
         }
 
@@ -1227,7 +1341,11 @@
                     // A console has far less headroom than a desktop; holding
                     // half an hour of played-out segments is what turns a long
                     // programme into a stall.
-                    backBufferLength: 30
+                    backBufferLength: 30,
+                    // Start the fetching where the viewer left off rather than
+                    // loading from the top and seeking afterwards. -1 is the
+                    // engine's own "wherever the stream says to begin".
+                    startPosition: resume > 5 ? resume : -1
                 });
                 hls.on(window.Hls.Events.MANIFEST_PARSED, started);
                 hls.on(window.Hls.Events.ERROR, function (evt, data) {
@@ -1343,6 +1461,7 @@
 
     function stop() {
         savePos();
+        knownDuration = 0;
         clearStall();
         // Anything still resolving belongs to a programme that is no longer
         // wanted, and must not attach itself once it arrives.
@@ -1392,30 +1511,77 @@
         elDesc.hidden = !s;
     }
 
+    /*
+     * WebKit's HLS reports a length of its own invention often enough to
+     * matter: Infinity on a stream that is not live, or a number in the
+     * millions. Both defeat the "at least five minutes long" test in savePos()
+     * without ever raising anything, so an episode would simply never store a
+     * position. Latch the last sane value and answer with that.
+     */
+    var MAX_DURATION = 24 * 3600;
+
+    function duration() {
+        var d = video.duration;
+        if (isFinite(d) && d > 0 && d < MAX_DURATION) {
+            knownDuration = d;
+            return d;
+        }
+        // Infinity is how a live stream reports itself and has to survive, but
+        // only until something sane has been seen: once a programme has given
+        // a real length, a later Infinity is the same glitch by another name.
+        return knownDuration || d;
+    }
+
+    function isLive() {
+        return !isFinite(duration());
+    }
+
     function updateOsd() {
-        var live = !isFinite(video.duration);
+        var live = isLive();
+        var dur = duration();
         var pct = live ? 100
-            : (video.duration ? (video.currentTime / video.duration) * 100 : 0);
+            : (dur ? (video.currentTime / dur) * 100 : 0);
+        // A seek landing past the latched length would otherwise push the
+        // head off the end of the bar.
+        pct = Math.max(0, Math.min(100, pct));
         elFill.style.width = pct + "%";
         elHead.style.left = pct + "%";
         elPos.textContent = live ? "LIVE" : fmtTime(video.currentTime);
-        elDur.textContent = live ? "" : fmtTime(video.duration);
+        elDur.textContent = live ? "" : fmtTime(dur);
     }
 
     function state(msg) {
         elState.textContent = msg || "";
     }
 
+    // Keep a target inside what the stream will actually serve. Asking for a
+    // position past the seekable range is one of the ways WebKit's HLS ends up
+    // reporting a nonsense duration, and it is never what the viewer wanted
+    // anyway.
+    function clampSeekable(t) {
+        var sk = video.seekable;
+        if (!sk || !sk.length) {
+            return t;
+        }
+        var first = sk.start(0);
+        var last = sk.end(sk.length - 1);
+        if (!isFinite(first) || !isFinite(last) || last <= first) {
+            return t;
+        }
+        return Math.max(first, Math.min(last - 1, t));
+    }
+
     // Seek nudges arrive faster than the stream can respond, so add them up and
     // apply once the viewer stops pressing.
     function seek(delta) {
-        if (!isFinite(video.duration)) {
+        var dur = duration();
+        if (!isFinite(dur)) {
             toast("Cannot seek in a live stream");
             return;
         }
         seekAccum += delta;
-        var target = Math.max(0,
-                              Math.min(video.duration - 1, video.currentTime + seekAccum));
+        var target = clampSeekable(
+            Math.max(0, Math.min(dur - 1, video.currentTime + seekAccum)));
         state((seekAccum > 0 ? "▶▶ +" : "◀◀ ") + fmtTime(Math.abs(seekAccum)) +
               "  →  " + fmtTime(target));
         showOsd(true);
@@ -1579,6 +1745,33 @@
         toast("Only one audio track");
     }
 
+    /*
+     * Pause and stop are the tidy ways out and both save on their way. The
+     * console's own way out is neither: closing the title from the dashboard,
+     * or a crash, takes the app down without either firing, and a position
+     * only ever written on a clean exit is one that is missing exactly when
+     * resume was most wanted. So the clock also writes itself down as it runs.
+     *
+     * timeupdate arrives about four times a second, which is far more often
+     * than this needs, so it is throttled to a write every fifteen seconds.
+     * That is the most that can be lost, and localStorage is cheap enough at
+     * that rate not to matter.
+     */
+    var SAVE_EVERY = 15000;
+    var lastSave = 0;
+
+    video.addEventListener("timeupdate", function () {
+        if (!currentEntry || video.paused) {
+            return;
+        }
+        var now = Date.now();
+        if (now - lastSave < SAVE_EVERY) {
+            return;
+        }
+        lastSave = now;
+        savePos();
+    });
+
     video.addEventListener("timeupdate", updateOsd);
     video.addEventListener("durationchange", updateOsd);
     video.addEventListener("progress", updateOsd);
@@ -1593,15 +1786,21 @@
         showOsd(false);
     });
     video.addEventListener("pause", function () {
-        state("Pausad");
+        state("Paused");
         showOsd(true);
         savePos();
     });
     video.addEventListener("ended", function () {
-        if (currentEntry) {
-            try { localStorage.removeItem(posKey(currentEntry.id)); } catch (e) {}
-        }
+        // After stop(), not before: stop() saves the position on its way out,
+        // so forgetting first only had the save write it straight back. In
+        // practice the clock sits at the end by then and savePos() drops it
+        // anyway, but a stream that reports itself ended early would otherwise
+        // keep a stale point.
+        var id = currentEntry ? currentEntry.id : null;
         stop();
+        if (id) {
+            forgetPos(id);
+        }
     });
     video.addEventListener("error", function () {
         var e = video.error;
